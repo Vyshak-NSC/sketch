@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SketchParty 🎨</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 1 — WELCOME
+═══════════════════════════════════════════════ -->
+<div id="screen-welcome" class="screen active">
+  <div class="welcome-wrap">
+    <div class="welcome-card">
+      <div class="logo-block">
+        <div class="logo-icon">🎨</div>
+        <h1 class="logo-text">SketchParty</h1>
+        <p class="logo-sub">Draw. Guess. Laugh.</p>
+      </div>
+
+      <div id="invite-banner" class="invite-banner hidden">
+        <span>📨</span>
+        <p>You've been invited! Enter your name below to jump in.</p>
+      </div>
+
+      <div class="form-section">
+        <div class="field">
+          <label for="inp-name">Your name</label>
+          <input type="text" id="inp-name" placeholder="e.g. Ash" maxlength="20" autocomplete="off" />
+        </div>
+
+        <button id="btn-create" class="btn primary large">✦ Create Room</button>
+
+        <div class="or-divider"><span>or join an existing one</span></div>
+
+        <div class="field">
+          <label for="inp-code">Room code</label>
+          <input type="text" id="inp-code" placeholder="e.g. AB3X9Z" maxlength="6" autocomplete="off"
+                 style="text-transform:uppercase;letter-spacing:0.15em;font-weight:600;" />
+        </div>
+        <button id="btn-join" class="btn secondary large">→ Join Room</button>
+
+        <p id="welcome-error" class="error-msg hidden"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 2 — LOBBY
+═══════════════════════════════════════════════ -->
+<div id="screen-lobby" class="screen">
+  <div class="lobby-wrap">
+    <div class="lobby-card">
+      <div class="lobby-header">
+        <div>
+          <h2>Waiting Room</h2>
+          <p class="lobby-subtitle">Invite friends using the code below</p>
+        </div>
+        <div class="code-chip">
+          <span id="lobby-code-display"></span>
+          <button id="btn-copy-link" class="btn ghost sm" title="Copy invite link">📋 Copy Link</button>
+        </div>
+      </div>
+
+      <div id="lobby-player-list" class="lobby-players"></div>
+
+      <div class="lobby-footer">
+        <div class="rounds-row">
+          <label>Rounds:</label>
+          <div class="round-btns">
+            <button class="rbtn" data-r="2">2</button>
+            <button class="rbtn active" data-r="3">3</button>
+            <button class="rbtn" data-r="4">4</button>
+            <button class="rbtn" data-r="5">5</button>
+          </div>
+        </div>
+        <button id="btn-start" class="btn primary large" disabled>
+          Start Game ▶
+        </button>
+        <p id="start-hint" class="hint-text">Waiting for more players…</p>
+        <p id="lobby-error" class="error-msg hidden"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 3 — GAME
+═══════════════════════════════════════════════ -->
+<div id="screen-game" class="screen">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="tb-left">
+      <span class="tb-logo">🎨 SketchParty</span>
+    </div>
+    <div class="tb-center">
+      <div class="round-badge">
+        Round <span id="ui-round">1</span> / <span id="ui-total-rounds">3</span>
+      </div>
+      <div id="hint-display" class="hint-display"></div>
+    </div>
+    <div class="tb-right">
+      <div class="timer-wrap">
+        <svg class="timer-svg" viewBox="0 0 44 44">
+          <circle cx="22" cy="22" r="18" fill="none" stroke="var(--border)" stroke-width="3.5"/>
+          <circle id="timer-circle" cx="22" cy="22" r="18" fill="none"
+            stroke="var(--primary)" stroke-width="3.5"
+            stroke-dasharray="113.1" stroke-dashoffset="0"
+            stroke-linecap="round" transform="rotate(-90 22 22)"/>
+        </svg>
+        <span id="timer-num">80</span>
+      </div>
+      <span id="tb-room-code" class="tb-code"></span>
+      <button id="btn-mic" class="mic-btn" title="Join voice chat">
+        <span class="mic-icon">🎙️</span>
+        <span class="mic-label">Voice</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Game body -->
+  <div class="game-body">
+
+    <!-- Players sidebar -->
+    <aside class="players-panel">
+      <h3 class="panel-title">Players</h3>
+      <div id="game-player-list" class="game-players"></div>
+    </aside>
+
+    <!-- Canvas + tools -->
+    <main class="canvas-panel">
+      <div class="canvas-frame">
+        <canvas id="canvas" width="800" height="600"></canvas>
+      </div>
+
+      <!-- Tools (drawer only) -->
+      <div id="draw-tools" class="draw-tools hidden">
+        <div class="palette">
+          <button class="clr active" data-c="#1c1917" style="--c:#1c1917"></button>
+          <button class="clr" data-c="#ffffff" style="--c:#ffffff"></button>
+          <button class="clr" data-c="#ef4444" style="--c:#ef4444"></button>
+          <button class="clr" data-c="#f97316" style="--c:#f97316"></button>
+          <button class="clr" data-c="#eab308" style="--c:#eab308"></button>
+          <button class="clr" data-c="#22c55e" style="--c:#22c55e"></button>
+          <button class="clr" data-c="#06b6d4" style="--c:#06b6d4"></button>
+          <button class="clr" data-c="#3b82f6" style="--c:#3b82f6"></button>
+          <button class="clr" data-c="#8b5cf6" style="--c:#8b5cf6"></button>
+          <button class="clr" data-c="#ec4899" style="--c:#ec4899"></button>
+          <button class="clr" data-c="#92400e" style="--c:#92400e"></button>
+          <button class="clr" data-c="#9ca3af" style="--c:#9ca3af"></button>
+          <label class="clr-custom" title="Custom colour">
+            <input type="color" id="custom-color" value="#1c1917" />
+            <span>+</span>
+          </label>
+        </div>
+
+        <div class="vsep"></div>
+
+        <div class="size-btns">
+          <button class="szb" data-s="3"  title="Tiny">●</button>
+          <button class="szb active" data-s="8"  title="Small">●</button>
+          <button class="szb" data-s="16" title="Medium">●</button>
+          <button class="szb" data-s="30" title="Large">●</button>
+        </div>
+
+        <div class="vsep"></div>
+
+        <button id="btn-eraser" class="tool-btn" title="Eraser">⌫</button>
+        <button id="btn-clear"  class="tool-btn danger" title="Clear canvas">🗑</button>
+      </div>
+
+      <!-- Status bar for non-drawers -->
+      <div id="status-bar" class="status-bar">
+        <span id="status-text">Waiting for game to start…</span>
+      </div>
+    </main>
+
+    <!-- Chat sidebar -->
+    <aside class="chat-panel">
+      <div id="chat-feed" class="chat-feed"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-inp" placeholder="Type your guess…" maxlength="100" autocomplete="off" />
+        <button id="btn-send" class="btn primary sm">↵</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── OVERLAYS ── -->
+
+  <!-- Word choice (drawer) -->
+  <div id="ov-word-choice" class="overlay hidden">
+    <div class="ov-card">
+      <h2>Pick a word to draw!</h2>
+      <p class="ov-sub">You have <span id="wc-timer">15</span>s — or one will be picked for you.</p>
+      <div id="word-cards" class="word-cards"></div>
+    </div>
+  </div>
+
+  <!-- Turn announcement -->
+  <div id="ov-announce" class="overlay hidden">
+    <div class="ov-card announce-card">
+      <div id="ann-avatar" class="ann-avatar"></div>
+      <h2 id="ann-name"></h2>
+      <p id="ann-sub" class="ov-sub"></p>
+    </div>
+  </div>
+
+  <!-- Turn end -->
+  <div id="ov-turn-end" class="overlay hidden">
+    <div class="ov-card">
+      <div id="te-emoji" class="te-emoji">⏰</div>
+      <h2 id="te-title">Time's up!</h2>
+      <p class="ov-sub">The word was:</p>
+      <p id="te-word" class="te-word"></p>
+      <div id="te-scores" class="te-scores"></div>
+    </div>
+  </div>
+
+</div><!-- end screen-game -->
+
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 4 — GAME OVER
+═══════════════════════════════════════════════ -->
+<div id="screen-gameover" class="screen">
+  <div class="go-wrap">
+    <div class="go-card">
+      <div class="go-confetti">🎊</div>
+      <h1 class="go-title">Game Over!</h1>
+      <div id="go-podium" class="go-podium"></div>
+      <div id="go-list" class="go-list"></div>
+      <div class="go-btns">
+        <button id="btn-play-again" class="btn primary large">▶ Play Again</button>
+        <button id="btn-leave" class="btn ghost large">← Leave</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Hidden audio elements for remote peers -->
+<div id="audio-container" style="display:none"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
