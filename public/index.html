@@ -20,7 +20,7 @@
       <div class="logo-block">
         <div class="logo-icon">🎨</div>
         <h1 class="logo-text">SketchParty</h1>
-        <p class="logo-sub">Draw. Guess. Laugh.</p>
+        <p class="logo-sub">Draw. Guess.</p>
       </div>
 
       <div id="invite-banner" class="invite-banner hidden">
@@ -28,10 +28,17 @@
         <p>You've been invited! Enter your name below to jump in.</p>
       </div>
 
+      <!-- REJOIN BANNER — shown after quitting a game -->
+      <div id="rejoin-banner" class="rejoin-banner hidden">
+        <span>🔁</span>
+        <p>You left a game in progress. Want to jump back in?</p>
+        <button id="btn-rejoin" class="btn secondary sm">Rejoin</button>
+      </div>
+
       <div class="form-section">
         <div class="field">
           <label for="inp-name">Your name</label>
-          <input type="text" id="inp-name" placeholder="e.g. Ash" maxlength="20" autocomplete="off" />
+          <input type="text" id="inp-name" placeholder="Name" maxlength="20" autocomplete="off" />
         </div>
 
         <button id="btn-create" class="btn primary large">✦ Create Room</button>
@@ -124,6 +131,8 @@
         <span class="mic-icon">🎙️</span>
         <span class="mic-label">Voice</span>
       </button>
+      <!-- QUIT BUTTON -->
+      <button id="btn-quit" class="btn-quit" title="Leave game">✕ Quit</button>
     </div>
   </header>
 
@@ -184,8 +193,12 @@
       </div>
     </main>
 
-    <!-- Chat sidebar -->
-    <aside class="chat-panel">
+    <!-- Chat sidebar — starts hidden, toggled by floating button -->
+    <aside class="chat-panel chat-hidden" id="chat-panel">
+      <div class="chat-panel-header">
+        <span>💬 Chat</span>
+        <button id="btn-chat-close" class="chat-close-btn" title="Close chat">✕</button>
+      </div>
       <div id="chat-feed" class="chat-feed"></div>
       <div class="chat-input-row">
         <input type="text" id="chat-inp" placeholder="Type your guess…" maxlength="100" autocomplete="off" />
@@ -226,6 +239,12 @@
   </div>
 
 </div><!-- end screen-game -->
+
+<!-- FLOATING CHAT TOGGLE BUTTON — shown during game -->
+<button id="btn-chat-toggle" class="btn-chat-toggle" style="display:none;">
+  💬 Chat
+  <span id="chat-unread" class="unread-badge hidden">0</span>
+</button>
 
 
 <!-- ═══════════════════════════════════════════════
