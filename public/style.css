@@ -156,7 +156,7 @@ input[type="text"]::placeholder { color: var(--text-3); }
 /* ═══════════════════════════════════════════
    GAME SCREEN
 ═══════════════════════════════════════════ */
-#screen-game { min-height: 100vh; background: var(--bg); display: flex !important; flex-direction: column; }
+#screen-game { min-height: 100vh; background: var(--bg); flex-direction: column; }
 
 /* Topbar */
 .topbar {

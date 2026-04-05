@@ -31,6 +31,10 @@ const Screens = {
 function showScreen(name) {
   Object.values(Screens).forEach(s => s.classList.remove('active'));
   Screens[name].classList.add('active');
+  if (name === 'game') {
+    chatOpen = window.innerWidth >= 900;
+    chatPanel.classList.toggle('chat-hidden', !chatOpen);
+  }
 }
 
 // ── DOM refs ───────────────────────────────────────────
@@ -81,9 +85,8 @@ const hideOverlay = el => el.classList.add('hidden');
 // CHAT
 // ════════════════════════════════════════════════════════
 
-let chatOpen = window.innerWidth >= 900;
+let chatOpen = false; // initialized properly when game screen is shown
 let unreadCount = 0;
-if (!chatOpen) chatPanel.classList.add('chat-hidden');
 
 function addMsg(type, html) {
   const el = document.createElement('div');
@@ -239,14 +242,20 @@ $('btn-leave-confirm').addEventListener('click', () => { hideOverlay(ovLeave); d
 function doLeaveGame() {
   leaveVoice();
   saveSession();
-  socket.disconnect();
   S.roomId = null; S.playerId = null;
   showScreen('welcome');
-  socket.connect();
+  socket.once('disconnect', () => socket.connect());
+  socket.disconnect();
 }
 
 btnLeave.addEventListener('click', () => { leaveVoice(); clearSession(); window.location.href = '/'; });
-btnPlayAgain.addEventListener('click', () => { showScreen('lobby'); renderLobby(); });
+btnPlayAgain.addEventListener('click', () => {
+  // Server already reset room to lobby state after gameEnded.
+  // Reset local scores to 0 to match server, then show lobby.
+  S.players.forEach(p => p.score = 0);
+  showScreen('lobby');
+  renderLobby();
+});
 
 // ════════════════════════════════════════════════════════
 // GAME — PLAYER LIST
@@ -474,14 +483,17 @@ function showGameOver(players) {
   showScreen('gameover');
   goPodium.innerHTML = '';
   const medals = ['🥇','🥈','🥉'];
-  [1, 0, 2].forEach(pos => {
-    const p = players[pos]; if (!p) return;
+  // Display order: 2nd (silver), 1st (gold), 3rd (bronze)
+  [1, 0, 2].forEach(displayPos => {
+    const rankIndex = displayPos; // players[0]=1st, players[1]=2nd, players[2]=3rd
+    const p = players[rankIndex]; if (!p) return;
     const idx = S.players.findIndex(sp => sp.id === p.id);
+    const blockClass = rankIndex === 0 ? 'p1' : rankIndex === 1 ? 'p2' : 'p3';
     const pod = document.createElement('div');
     pod.className = 'pod-item';
-    pod.innerHTML = `<div class="pod-av" style="background:${avColor(idx >= 0 ? idx : pos)}">${avLetter(p.name)}</div>
+    pod.innerHTML = `<div class="pod-av" style="background:${avColor(idx >= 0 ? idx : rankIndex)}">${avLetter(p.name)}</div>
       <div class="pod-name">${escHtml(p.name)}</div><div class="pod-score">${p.score}</div>
-      <div class="pod-block p${pos === 1 ? 1 : pos === 0 ? 2 : 3}">${medals[pos] || ''}</div>`;
+      <div class="pod-block ${blockClass}">${medals[rankIndex] || ''}</div>`;
     goPodium.appendChild(pod);
   });
   goList.innerHTML = '';
@@ -507,6 +519,7 @@ socket.on('roomJoined', ({ roomId, playerId, players, isHost, isRejoin, gameStat
   saveSession();
 
   if (isRejoin && gameState) {
+    const amDrawer = gameState.drawerId === socket.id; // will be reassigned below
     S.currentDrawerId = gameState.drawerId;
     uiRound.textContent = gameState.round;
     uiTotalR.textContent = gameState.totalRounds;
@@ -514,8 +527,9 @@ socket.on('roomJoined', ({ roomId, playerId, players, isHost, isRejoin, gameStat
     renderGamePlayers();
     if (gameState.hint) renderHint(gameState.hint);
     if (gameState.timeLeft) updateTimer(gameState.timeLeft);
-    setDrawingMode(false);
-    setChatEnabled(gameState.state === 'drawing');
+    const iAmDrawer = gameState.drawerId === playerId;
+    setDrawingMode(iAmDrawer);
+    setChatEnabled(!iAmDrawer && gameState.state === 'drawing');
     addMsg('system alert', '🔄 You rejoined the game!');
   } else {
     showScreen('lobby');
