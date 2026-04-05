@@ -23,6 +23,15 @@
         <p class="logo-sub">Draw. Guess. Laugh.</p>
       </div>
 
+      <div id="rejoin-banner" class="rejoin-banner hidden">
+        <span>🔄</span>
+        <div>
+          <p style="font-weight:600;margin:0">Rejoin your last game?</p>
+          <p style="font-size:12px;color:var(--text-3);margin:2px 0 8px">Room <span id="rejoin-code-label"></span></p>
+          <button id="btn-rejoin" class="btn primary sm">Rejoin Now</button>
+        </div>
+      </div>
+
       <div id="invite-banner" class="invite-banner hidden">
         <span>📨</span>
         <p>You've been invited! Enter your name below to jump in.</p>
@@ -31,7 +40,7 @@
       <div class="form-section">
         <div class="field">
           <label for="inp-name">Your name</label>
-          <input type="text" id="inp-name" placeholder="e.g. Ash" maxlength="20" autocomplete="off" />
+          <input type="text" id="inp-name" placeholder="Name..." maxlength="20" autocomplete="off" />
         </div>
 
         <button id="btn-create" class="btn primary large">✦ Create Room</button>
@@ -120,6 +129,10 @@
         <span id="timer-num">80</span>
       </div>
       <span id="tb-room-code" class="tb-code"></span>
+      <button id="btn-chat-toggle" class="chat-toggle-btn" title="Toggle chat">
+        💬 <span id="chat-unread" class="unread-badge hidden">0</span>
+      </button>
+      <button id="btn-leave-game" class="btn ghost sm leave-btn" title="Leave game">✕ Leave</button>
       <button id="btn-mic" class="mic-btn" title="Join voice chat">
         <span class="mic-icon">🎙️</span>
         <span class="mic-label">Voice</span>
@@ -185,7 +198,7 @@
     </main>
 
     <!-- Chat sidebar -->
-    <aside class="chat-panel">
+    <aside class="chat-panel" id="chat-panel">
       <div id="chat-feed" class="chat-feed"></div>
       <div class="chat-input-row">
         <input type="text" id="chat-inp" placeholder="Type your guess…" maxlength="100" autocomplete="off" />
@@ -246,6 +259,19 @@
   </div>
 </div>
 
+
+<!-- Leave confirmation modal -->
+<div id="ov-leave-confirm" class="overlay hidden">
+  <div class="ov-card" style="max-width:340px">
+    <div style="font-size:36px;margin-bottom:8px">🚪</div>
+    <h2>Leave game?</h2>
+    <p class="ov-sub" style="margin-bottom:20px">You can rejoin with the same name and room code.</p>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button id="btn-leave-confirm" class="btn danger-btn">Leave</button>
+      <button id="btn-leave-cancel" class="btn ghost">Stay</button>
+    </div>
+  </div>
+</div>
 
 <!-- Hidden audio elements for remote peers -->
 <div id="audio-container" style="display:none"></div>

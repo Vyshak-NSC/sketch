@@ -95,7 +95,8 @@ io.on('connection', (socket) => {
       turnCount: 0, currentDrawerIndex: 0, currentRound: 1,
       totalRounds: 3, currentWord: null, timeLeft: TURN_TIME,
       revealedIndices: [], guessedPlayers: [],
-      timer: null, wordChoiceTimer: null
+      timer: null, wordChoiceTimer: null,
+      leftPlayers: {}  // name -> score, for rejoin
     };
 
     socket.join(roomId);
@@ -108,17 +109,34 @@ io.on('connection', (socket) => {
     roomId = (roomId || '').toUpperCase().trim();
     const room = rooms[roomId];
 
-    if (!room)                      return socket.emit('joinError', { message: 'Room not found. Double-check the code.' });
-    if (room.state !== 'lobby')     return socket.emit('joinError', { message: 'This game has already started.' });
-    if (room.players.length >= 8)   return socket.emit('joinError', { message: 'Room is full (max 8 players).' });
+    if (!room) return socket.emit('joinError', { message: 'Room not found. Double-check the code.' });
+    if (room.players.length >= 8) return socket.emit('joinError', { message: 'Room is full (max 8 players).' });
 
-    const player = { id: socket.id, name, score: 0, isHost: false };
+    // Allow mid-game rejoin if they were in this room before (matched by name)
+    const isRejoin = room.state !== 'lobby' && room.leftPlayers[name] !== undefined;
+    if (room.state !== 'lobby' && !isRejoin) {
+      return socket.emit('joinError', { message: 'Game in progress — ask the host for the code to rejoin.' });
+    }
+
+    const savedScore = isRejoin ? (room.leftPlayers[name] || 0) : 0;
+    if (isRejoin) delete room.leftPlayers[name];
+
+    const player = { id: socket.id, name, score: savedScore, isHost: false };
     room.players.push(player);
     socket.join(roomId);
     socket.data = { roomId, name };
 
-    socket.emit('roomJoined', { roomId, playerId: socket.id, players: room.players, isHost: false });
-    socket.to(roomId).emit('playerJoined', { player, players: room.players });
+    const gameState = room.state !== 'lobby' ? {
+      state: room.state,
+      round: room.currentRound,
+      totalRounds: room.totalRounds,
+      drawerId: room.players[room.currentDrawerIndex]?.id,
+      hint: room.currentWord ? buildHint(room.currentWord, room.revealedIndices) : null,
+      timeLeft: room.timeLeft,
+    } : null;
+
+    socket.emit('roomJoined', { roomId, playerId: socket.id, players: room.players, isHost: false, isRejoin, gameState });
+    socket.to(roomId).emit('playerJoined', { player, players: room.players, isRejoin });
   });
 
   socket.on('startGame', ({ totalRounds }) => {
@@ -208,6 +226,8 @@ io.on('connection', (socket) => {
     const idx = room.players.findIndex(p => p.id === socket.id);
     if (idx === -1) return;
     const [leaving] = room.players.splice(idx, 1);
+    // Save score so they can rejoin and keep their points
+    room.leftPlayers[leaving.name] = leaving.score;
 
     if (!room.players.length) {
       if (room.timer) clearInterval(room.timer);
