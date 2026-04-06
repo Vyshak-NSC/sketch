@@ -227,7 +227,7 @@ function renderLobby() {
     el.innerHTML = `
       <div class="av" style="background:${avColor(i)}">${avLetter(p.name)}</div>
       <span>${escHtml(p.name)}</span>
-      ${p.isHost ? '<span class="crown" title="Host"></span>' : ''}
+      ${p.isHost ? '<span class="crown" title="Host">Host</span>' : ''}
       ${p.disconnected ? '<span class="dc-badge"></span>' : ''}
     `;
     lobbyList.appendChild(el);
