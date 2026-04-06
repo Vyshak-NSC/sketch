@@ -227,8 +227,8 @@ function renderLobby() {
     el.innerHTML = `
       <div class="av" style="background:${avColor(i)}">${avLetter(p.name)}</div>
       <span>${escHtml(p.name)}</span>
-      ${p.isHost ? '<span class="crown" title="Host">👑</span>' : ''}
-      ${p.disconnected ? '<span class="dc-badge">⚡</span>' : ''}
+      ${p.isHost ? '<span class="crown" title="Host"></span>' : ''}
+      ${p.disconnected ? '<span class="dc-badge"></span>' : ''}
     `;
     lobbyList.appendChild(el);
   });
@@ -239,7 +239,7 @@ function renderLobby() {
   if (S.isHost) {
     startHint.textContent = S.players.length < 2
       ? 'Need at least 2 players to start.'
-      : 'Ready to go! 🎉';
+      : 'Ready to go!';
   } else {
     startHint.textContent = 'Waiting for the host to start…';
   }
