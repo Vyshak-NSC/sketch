@@ -148,24 +148,60 @@ io.on('connection', (socket) => {
 
   // ── REJOIN ROOM (FIXED) ──
   socket.on('rejoinRoom', ({ roomId, name }) => {
-    const room = rooms[roomId];
-    if (!room) return;
+  name = (name || 'Player').trim().slice(0, 20);
+  roomId = (roomId || '').toUpperCase().trim();
+  const room = rooms[roomId];
 
-    const player = { id: socket.id, name, score: 0, isHost: false };
+  if (!room) {
+    return socket.emit('joinError', { message: 'Room no longer exists.' });
+  }
+
+  // Try match by name FIRST
+  let player = room.players.find(p => p.name === name);
+
+  if (player) {
+    // reconnect existing player
+    player.id = socket.id;
+  } else {
+    // fallback → treat as new join
+    player = { id: socket.id, name, score: 0, isHost: false };
     room.players.push(player);
+  }
 
-    socket.join(roomId);
-    socket.data = { roomId, name };
+  socket.join(roomId);
+  socket.data = { roomId, name };
 
-    socket.emit('roomJoined', {
-      roomId,
-      playerId: socket.id,
-      players: room.players,
-      isHost: false
+  socket.emit('roomJoined', {
+    roomId,
+    playerId: socket.id,
+    players: room.players,
+    isHost: player.isHost
+  });
+
+  io.to(roomId).emit('playerJoined', { player, players: room.players });
+
+  // 🔥 IMPORTANT: restore game state
+  if (room.state === 'drawing') {
+    socket.emit('drawingStarted', {
+      hint: buildHint(room.currentWord, room.revealedIndices),
+      drawerId: room.players[room.currentDrawerIndex].id
     });
 
-    socket.to(roomId).emit('playerJoined', { player, players: room.players });
-  });
+    if (player.id === room.players[room.currentDrawerIndex].id) {
+      socket.emit('yourWordIs', { word: room.currentWord });
+    }
+  }
+
+  if (room.state === 'choosing') {
+    socket.emit('newTurn', {
+      drawerId: room.players[room.currentDrawerIndex].id,
+      drawerName: room.players[room.currentDrawerIndex].name,
+      round: room.currentRound,
+      totalRounds: room.totalRounds,
+      players: room.players
+    });
+  }
+});
 
   // ── DISCONNECT ──
   socket.on('disconnect', () => {

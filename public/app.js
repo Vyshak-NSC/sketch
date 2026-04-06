@@ -211,6 +211,12 @@ btnRejoin.addEventListener('click', () => {
   if (code) {
     $('invite-banner').classList.remove('hidden');
     inpCode.value = code.toUpperCase();
+
+    // auto-restore rejoin option
+    if (inpName.value.trim()) {
+      savedRoom = { roomId: code.toUpperCase(), name: inpName.value.trim() };
+      rejoinBanner.classList.remove('hidden');
+    }
   }
 })();
 
@@ -233,7 +239,7 @@ function joinRoom() {
   if (!name) { showError(wError, 'Enter your name first!'); return; }
   if (!code) { showError(wError, 'Enter a room code!'); return; }
   hideError(wError);
-  socket.emit('joinRoom', { name, roomId: code });
+  socket.emit('rejoinRoom', { name, roomId: code });
 }
 
 // ════════════════════════════════════════════════════════
