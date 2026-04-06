@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,56 +9,21 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Local IP
-app.get('/api/local-ip', (req, res) => {
-  const nets = os.networkInterfaces();
-  let localIp = null;
-  for (const ifaces of Object.values(nets)) {
-    for (const iface of ifaces) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        localIp = iface.address;
-        break;
-      }
-    }
-    if (localIp) break;
-  }
-  res.json({ ip: localIp });
-});
-
 app.get('*', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'index.html'))
 );
 
-// ─── Constants ───
-const TURN_TIME = 80;
-const HINT_INTERVAL = 25;
-const WORD_CHOICE_TIME = 15;
-
-const WORDS = ['elephant','penguin','kangaroo','dolphin','pizza','rocket','dragon'];
+// ─── CONSTANTS ───
+const WORDS = ['elephant','pizza','rocket','dragon','car','tree','house'];
 
 const rooms = {};
 
-// ─── Helpers ───
-function generateRoomId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  for (let i = 0; i < 6; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
-}
-
-function getRandomWords(n = 3) {
-  return [...WORDS].sort(() => Math.random() - 0.5).slice(0, n);
-}
-
-// ─── SOCKET ─────────────────────────────────────────────
+// ─── SOCKET ─────────────────────────
 io.on('connection', (socket) => {
 
-  // ── CREATE ROOM ──
+  // CREATE
   socket.on('createRoom', ({ name }) => {
-    let roomId;
-    do { roomId = generateRoomId(); } while (rooms[roomId]);
+    const roomId = Math.random().toString(36).substring(2, 7).toUpperCase();
 
     const player = { id: socket.id, name, score: 0, isHost: true };
 
@@ -68,11 +32,7 @@ io.on('connection', (socket) => {
       players: [player],
       state: 'lobby',
       currentDrawerIndex: 0,
-      turnCount: 0,
-      totalRounds: 3,
-      currentWord: null,
-      guessedPlayers: [],
-      timer: null
+      currentWord: null
     };
 
     socket.join(roomId);
@@ -86,13 +46,21 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ── JOIN ROOM ──
-  socket.on('joinRoom', ({ roomId, name }) => {
+  // JOIN / REJOIN
+  socket.on('rejoinRoom', ({ roomId, name }) => {
+    roomId = (roomId || '').toUpperCase();
     const room = rooms[roomId];
+
     if (!room) return socket.emit('joinError', { message: 'Room not found' });
 
-    const player = { id: socket.id, name, score: 0, isHost: false };
-    room.players.push(player);
+    let player = room.players.find(p => p.name === name);
+
+    if (player) {
+      player.id = socket.id;
+    } else {
+      player = { id: socket.id, name, score: 0, isHost: false };
+      room.players.push(player);
+    }
 
     socket.join(roomId);
     socket.data = { roomId, name };
@@ -101,132 +69,142 @@ io.on('connection', (socket) => {
       roomId,
       playerId: socket.id,
       players: room.players,
-      isHost: false
+      isHost: player.isHost
     });
 
-    socket.to(roomId).emit('playerJoined', { player, players: room.players });
+    io.to(roomId).emit('playerJoined', { player, players: room.players });
+
+    // restore game state
+    if (room.state === 'drawing') {
+      socket.emit('drawingStarted', {
+        hint: '_ '.repeat(room.currentWord.length),
+        drawerId: room.players[room.currentDrawerIndex].id
+      });
+
+      if (player.id === room.players[room.currentDrawerIndex].id) {
+        socket.emit('yourWordIs', { word: room.currentWord });
+      }
+    }
   });
 
-  // ── START GAME ──
+  // START GAME
   socket.on('startGame', () => {
     const room = rooms[socket.data?.roomId];
     if (!room) return;
 
+    if (room.players.length < 2) return;
+
     room.state = 'playing';
-    io.to(room.id).emit('gameStarted', { totalRounds: room.totalRounds });
+    room.currentDrawerIndex = 0;
+
+    io.to(room.id).emit('gameStarted', {
+      totalRounds: 1
+    });
+
+    startTurn(room.id); // ✅ FIXED
   });
 
-  // ── QUIT ROOM (FIXED) ──
-  socket.on('quitRoom', () => {
+  // DRAW
+  socket.on('drawEvent', (data) => {
     const roomId = socket.data?.roomId;
-    const room = rooms[roomId];
+    if (!roomId) return;
+    socket.to(roomId).emit('drawEvent', data);
+  });
+
+  // CLEAR
+  socket.on('clearCanvas', () => {
+    const roomId = socket.data?.roomId;
+    if (!roomId) return;
+    socket.to(roomId).emit('canvasCleared');
+  });
+
+  // GUESS
+  socket.on('guess', ({ text }) => {
+    const room = rooms[socket.data?.roomId];
     if (!room) return;
 
-    const idx = room.players.findIndex(p => p.id === socket.id);
-    if (idx === -1) return;
+    if (!room.currentWord) return;
 
-    const [leaving] = room.players.splice(idx, 1);
+    if (text.toLowerCase() === room.currentWord.toLowerCase()) {
+      io.to(room.id).emit('correctGuess', {
+        playerId: socket.id,
+        playerName: socket.data.name,
+        points: 100,
+        players: room.players
+      });
 
-    if (leaving.isHost && room.players.length > 0) {
-      room.players[0].isHost = true;
-      io.to(roomId).emit('hostChanged', { newHostId: room.players[0].id });
-    }
-
-    io.to(roomId).emit('playerLeft', {
-      playerId: socket.id,
-      playerName: leaving.name,
-      players: room.players
-    });
-
-    socket.leave(roomId);
-    socket.data = {};
-
-    if (!room.players.length) {
-      delete rooms[roomId];
+      endTurn(room.id);
+    } else {
+      io.to(room.id).emit('wrongGuess', {
+        playerName: socket.data.name,
+        text
+      });
     }
   });
 
-  // ── REJOIN ROOM (FIXED) ──
-  socket.on('rejoinRoom', ({ roomId, name }) => {
-  name = (name || 'Player').trim().slice(0, 20);
-  roomId = (roomId || '').toUpperCase().trim();
-  const room = rooms[roomId];
-
-  if (!room) {
-    return socket.emit('joinError', { message: 'Room no longer exists.' });
-  }
-
-  // Try match by name FIRST
-  let player = room.players.find(p => p.name === name);
-
-  if (player) {
-    // reconnect existing player
-    player.id = socket.id;
-  } else {
-    // fallback → treat as new join
-    player = { id: socket.id, name, score: 0, isHost: false };
-    room.players.push(player);
-  }
-
-  socket.join(roomId);
-  socket.data = { roomId, name };
-
-  socket.emit('roomJoined', {
-    roomId,
-    playerId: socket.id,
-    players: room.players,
-    isHost: player.isHost
-  });
-
-  io.to(roomId).emit('playerJoined', { player, players: room.players });
-
-  // 🔥 IMPORTANT: restore game state
-  if (room.state === 'drawing') {
-    socket.emit('drawingStarted', {
-      hint: buildHint(room.currentWord, room.revealedIndices),
-      drawerId: room.players[room.currentDrawerIndex].id
-    });
-
-    if (player.id === room.players[room.currentDrawerIndex].id) {
-      socket.emit('yourWordIs', { word: room.currentWord });
-    }
-  }
-
-  if (room.state === 'choosing') {
-    socket.emit('newTurn', {
-      drawerId: room.players[room.currentDrawerIndex].id,
-      drawerName: room.players[room.currentDrawerIndex].name,
-      round: room.currentRound,
-      totalRounds: room.totalRounds,
-      players: room.players
-    });
-  }
-});
-
-  // ── DISCONNECT ──
+  // DISCONNECT
   socket.on('disconnect', () => {
     const roomId = socket.data?.roomId;
     const room = rooms[roomId];
     if (!room) return;
 
-    const idx = room.players.findIndex(p => p.id === socket.id);
-    if (idx === -1) return;
-
-    const [leaving] = room.players.splice(idx, 1);
+    room.players = room.players.filter(p => p.id !== socket.id);
 
     io.to(roomId).emit('playerLeft', {
-      playerId: socket.id,
-      playerName: leaving.name,
+      playerName: socket.data?.name,
       players: room.players
     });
-
-    if (!room.players.length) delete rooms[roomId];
   });
 
 });
 
-// ─── SERVER START ───
+// ─── GAME FLOW ───
+
+function startTurn(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  const drawer = room.players[room.currentDrawerIndex];
+  const word = WORDS[Math.floor(Math.random() * WORDS.length)];
+
+  room.currentWord = word;
+  room.state = 'drawing';
+
+  io.to(roomId).emit('newTurn', {
+    drawerId: drawer.id,
+    drawerName: drawer.name,
+    round: 1,
+    totalRounds: 1,
+    players: room.players
+  });
+
+  io.to(drawer.id).emit('yourWordIs', { word });
+
+  io.to(roomId).emit('drawingStarted', {
+    hint: '_ '.repeat(word.length),
+    drawerId: drawer.id
+  });
+}
+
+function endTurn(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  io.to(roomId).emit('turnEnded', {
+    word: room.currentWord,
+    players: room.players
+  });
+
+  setTimeout(() => {
+    room.currentDrawerIndex =
+      (room.currentDrawerIndex + 1) % room.players.length;
+
+    startTurn(roomId);
+  }, 3000);
+}
+
+// ─── START SERVER ───
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Running → http://localhost:${PORT}`);
+  console.log(`Running on http://localhost:${PORT}`);
 });
