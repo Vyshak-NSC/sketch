@@ -10,10 +10,11 @@ const socket = io();
 const S = {
   roomId:       null,
   playerId:     null,
+  myName:       null,   // stored separately for rejoin after socket ID changes
   isHost:       false,
   players:      [],
   selectedRounds: 3,
-  isDrawing:    false,   // am I the current drawer?
+  isDrawing:    false,
   hasGuessed:   false,
   currentDrawerId: null,
   // Drawing tool state
@@ -23,7 +24,7 @@ const S = {
   // Timer
   totalTime: 80,
   // For replaying paths on other clients
-  activePath: null, // { color, size, lastX, lastY }
+  activePath: null,
   // Word choice timer
   wcInterval: null,
   wcTime: 15,
@@ -48,11 +49,6 @@ const Screens = {
 function showScreen(name) {
   Object.values(Screens).forEach(s => s.classList.remove('active'));
   Screens[name].classList.add('active');
-
-  // Show/hide chat toggle based on screen
-  const inGame = name === 'game';
-  btnChatToggle.style.display = inGame ? 'flex' : 'none';
-  if (!inGame) closeChatPanel();
 }
 
 // ── DOM refs ─────────────────────────────────────────────
@@ -64,9 +60,8 @@ const inpCode    = $('inp-code');
 const btnCreate  = $('btn-create');
 const btnJoin    = $('btn-join');
 const wError     = $('welcome-error');
-
-// Rejoin
 const rejoinBanner = $('rejoin-banner');
+const rejoinCode   = $('rejoin-code');
 const btnRejoin    = $('btn-rejoin');
 
 // Lobby
@@ -76,6 +71,7 @@ const btnCopy    = $('btn-copy-link');
 const btnStart   = $('btn-start');
 const startHint  = $('start-hint');
 const lobbyError = $('lobby-error');
+const btnLobbyLeave = $('btn-lobby-leave');
 
 // Game topbar
 const uiRound    = $('ui-round');
@@ -84,7 +80,7 @@ const hintDisp   = $('hint-display');
 const timerNum   = $('timer-num');
 const timerCirc  = $('timer-circle');
 const tbCode     = $('tb-room-code');
-const btnQuit    = $('btn-quit');
+const btnGameLeave = $('btn-game-leave');
 
 // Game panels
 const gamePlayers = $('game-player-list');
@@ -102,13 +98,9 @@ const btnClear   = $('btn-clear');
 const customColor = $('custom-color');
 
 // Chat
-const chatPanel      = $('chat-panel');
-const chatFeed       = $('chat-feed');
-const chatInp        = $('chat-inp');
-const btnSend        = $('btn-send');
-const btnChatToggle  = $('btn-chat-toggle');
-const btnChatClose   = $('btn-chat-close');
-const chatUnread     = $('chat-unread');
+const chatFeed   = $('chat-feed');
+const chatInp    = $('chat-inp');
+const btnSend    = $('btn-send');
 
 // Overlays
 const ovWordChoice = $('ov-word-choice');
@@ -122,85 +114,6 @@ const btnPlayAgain = $('btn-play-again');
 const btnLeave   = $('btn-leave');
 
 // ════════════════════════════════════════════════════════
-// CHAT TOGGLE
-// ════════════════════════════════════════════════════════
-
-let chatOpen = false;
-let unreadCount = 0;
-
-function openChatPanel() {
-  chatOpen = true;
-  chatPanel.classList.remove('chat-hidden');
-  unreadCount = 0;
-  chatUnread.textContent = '0';
-  chatUnread.classList.add('hidden');
-  chatFeed.scrollTop = chatFeed.scrollHeight;
-}
-
-function closeChatPanel() {
-  chatOpen = false;
-  chatPanel.classList.add('chat-hidden');
-}
-
-function bumpUnread() {
-  if (!chatOpen) {
-    unreadCount++;
-    chatUnread.textContent = unreadCount;
-    chatUnread.classList.remove('hidden');
-  }
-}
-
-btnChatToggle.addEventListener('click', () => {
-  if (chatOpen) closeChatPanel();
-  else openChatPanel();
-});
-
-btnChatClose.addEventListener('click', closeChatPanel);
-
-// ════════════════════════════════════════════════════════
-// QUIT & REJOIN
-// ════════════════════════════════════════════════════════
-
-let savedRoom = null; // { roomId, name } — preserved when user quits
-
-btnQuit.addEventListener('click', () => {
-  if (!confirm('Leave the game? Your progress will be lost.')) return;
-
-  // Save room info so user can rejoin
-  savedRoom = { roomId: S.roomId, name: inpName.value.trim() || 'Player' };
-
-  // Clean up voice if active
-  leaveVoice();
-
-  // Disconnect and immediately reconnect (gets a fresh socket.id)
-  socket.disconnect();
-  socket.connect();
-
-  // Reset local state
-  S.roomId = null; S.playerId = null; S.isHost = false; S.players = [];
-
-  // Back to welcome
-  showScreen('welcome');
-
-  // Show rejoin banner
-  rejoinBanner.classList.remove('hidden');
-  inpName.value = savedRoom.name;
-
-  // Clear URL param
-  history.replaceState(null, '', '/');
-});
-
-btnRejoin.addEventListener('click', () => {
-  if (!savedRoom) return;
-  inpCode.value = savedRoom.roomId;
-  inpName.value = savedRoom.name;
-  hideError(wError);
-  rejoinBanner.classList.add('hidden');
-  // Trigger join
-  joinRoom();
-});
-
-// ════════════════════════════════════════════════════════
 // WELCOME SCREEN
 // ════════════════════════════════════════════════════════
 
@@ -211,21 +124,35 @@ btnRejoin.addEventListener('click', () => {
   if (code) {
     $('invite-banner').classList.remove('hidden');
     inpCode.value = code.toUpperCase();
-
-    // auto-restore rejoin option
-    if (inpName.value.trim()) {
-      savedRoom = { roomId: code.toUpperCase(), name: inpName.value.trim() };
-      rejoinBanner.classList.remove('hidden');
-    }
   }
 })();
+
+// Show rejoin banner if localStorage has a recent room
+(function checkRejoin() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sp_session') || 'null');
+    if (saved && saved.roomId && saved.name && Date.now() - saved.ts < 90 * 60 * 1000) {
+      rejoinCode.textContent = saved.roomId;
+      rejoinBanner.classList.remove('hidden');
+      inpName.value = saved.name;
+    }
+  } catch (_) {}
+})();
+
+btnRejoin.addEventListener('click', () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sp_session') || 'null');
+    if (!saved) return;
+    S.myName = saved.name;
+    socket.emit('rejoinRoom', { roomId: saved.roomId, name: saved.name });
+  } catch (_) {}
+});
 
 btnCreate.addEventListener('click', () => {
   const name = inpName.value.trim();
   if (!name) { showError(wError, 'Enter your name first!'); return; }
+  S.myName = name;
   hideError(wError);
-  rejoinBanner.classList.add('hidden');
-  savedRoom = null;
   socket.emit('createRoom', { name });
 });
 
@@ -238,8 +165,9 @@ function joinRoom() {
   const code = inpCode.value.trim().toUpperCase();
   if (!name) { showError(wError, 'Enter your name first!'); return; }
   if (!code) { showError(wError, 'Enter a room code!'); return; }
+  S.myName = name;
   hideError(wError);
-  socket.emit('rejoinRoom', { name, roomId: code });
+  socket.emit('joinRoom', { name, roomId: code });
 }
 
 // ════════════════════════════════════════════════════════
@@ -260,6 +188,9 @@ btnCopy.addEventListener('click', () => {
   navigator.clipboard.writeText(url).then(() => {
     btnCopy.textContent = '✓ Copied!';
     setTimeout(() => btnCopy.textContent = '📋 Copy Link', 2000);
+  }).catch(() => {
+    btnCopy.textContent = `Code: ${S.roomId}`;
+    setTimeout(() => btnCopy.textContent = '📋 Copy Link', 3000);
   });
 });
 
@@ -267,21 +198,44 @@ btnStart.addEventListener('click', () => {
   socket.emit('startGame', { totalRounds: S.selectedRounds });
 });
 
+btnLobbyLeave.addEventListener('click', () => {
+  leaveGame();
+});
+
+btnGameLeave.addEventListener('click', () => {
+  if (confirm('Leave the game?')) leaveGame();
+});
+
+function leaveGame() {
+  leaveVoice();
+  clearSession();
+  history.replaceState(null, '', '/');
+  // Reset state
+  S.roomId = null; S.playerId = null; S.myName = null;
+  S.players = []; S.isHost = false;
+  inpName.value = '';
+  showScreen('welcome');
+  socket.disconnect();
+  setTimeout(() => socket.connect(), 300);
+}
+
 function renderLobby() {
   lobbyList.innerHTML = '';
   S.players.forEach((p, i) => {
     const el = document.createElement('div');
-    el.className = 'lobby-player';
+    el.className = 'lobby-player' + (p.disconnected ? ' dc' : '');
     el.innerHTML = `
       <div class="av" style="background:${avColor(i)}">${avLetter(p.name)}</div>
       <span>${escHtml(p.name)}</span>
       ${p.isHost ? '<span class="crown" title="Host">👑</span>' : ''}
+      ${p.disconnected ? '<span class="dc-badge">⚡</span>' : ''}
     `;
     lobbyList.appendChild(el);
   });
 
   const canStart = S.isHost && S.players.length >= 2;
   btnStart.disabled = !canStart;
+  btnStart.style.display = S.isHost ? '' : 'none';
   if (S.isHost) {
     startHint.textContent = S.players.length < 2
       ? 'Need at least 2 players to start.'
@@ -301,10 +255,11 @@ function renderGamePlayers() {
     const el = document.createElement('div');
     el.className = 'gp-row';
     if (p.id === S.currentDrawerId) el.classList.add('drawing');
+    if (p.disconnected) el.classList.add('dc');
     el.innerHTML = `
       <div class="gp-av" style="background:${avColor(i)}">${avLetter(p.name)}</div>
       <div class="gp-info">
-        <div class="gp-name">${escHtml(p.name)}</div>
+        <div class="gp-name">${escHtml(p.name)}${p.disconnected ? ' <span class="dc-dot">⚡</span>' : ''}</div>
         <div class="gp-score">${p.score} pts</div>
       </div>
       ${p.id === S.currentDrawerId ? '<span class="gp-badge">✏️</span>' : ''}
@@ -317,9 +272,7 @@ function renderGamePlayers() {
 function markPlayerGuessed(playerId) {
   const rows = gamePlayers.querySelectorAll('.gp-row');
   S.players.forEach((p, i) => {
-    if (p.id === playerId) {
-      rows[i]?.classList.add('guessed');
-    }
+    if (p.id === playerId) rows[i]?.classList.add('guessed');
   });
 }
 
@@ -328,7 +281,6 @@ function markPlayerGuessed(playerId) {
 // ════════════════════════════════════════════════════════
 
 function renderHint(hintStr) {
-  // hintStr: "_ p _ _ _ / _ _ _" where / = space between words
   hintDisp.innerHTML = '';
   hintStr.split(' ').forEach(ch => {
     const span = document.createElement('span');
@@ -396,8 +348,6 @@ function addMsg(type, html) {
   el.innerHTML = html;
   chatFeed.appendChild(el);
   chatFeed.scrollTop = chatFeed.scrollHeight;
-  // Count unread when chat is closed
-  if (!chatOpen) bumpUnread();
 }
 
 function sendGuess() {
@@ -453,14 +403,12 @@ function onDrawStart(e) {
   const c = S.tool === 'eraser' ? '#ffffff' : S.color;
   const sz = S.tool === 'eraser' ? S.size * 3.5 : S.size;
 
-  // Draw a dot
   ctx.beginPath();
   ctx.arc(x, y, sz / 2, 0, Math.PI * 2);
   ctx.fillStyle = c;
   ctx.fill();
 
-  const data = { type: 'start', x, y, color: c, size: sz };
-  socket.emit('drawEvent', data);
+  socket.emit('drawEvent', { type: 'start', x, y, color: c, size: sz });
 }
 
 function onDrawMove(e) {
@@ -477,9 +425,7 @@ function onDrawMove(e) {
 }
 
 function onDrawEnd() {
-  if (isMouseDown) {
-    socket.emit('drawEvent', { type: 'end' });
-  }
+  if (isMouseDown) socket.emit('drawEvent', { type: 'end' });
   isMouseDown = false;
 }
 
@@ -549,6 +495,29 @@ btnClear.addEventListener('click', () => {
 });
 
 // ════════════════════════════════════════════════════════
+// MOBILE TABS
+// ════════════════════════════════════════════════════════
+
+document.querySelectorAll('.mtab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mtab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+
+    const panelCanvas  = $('panel-canvas');
+    const panelChat    = $('panel-chat');
+    const panelPlayers = $('panel-players');
+
+    // On mobile: show only the selected panel
+    if (window.innerWidth <= 900) {
+      panelCanvas.classList.toggle('mobile-hidden', tab !== 'canvas');
+      panelChat.classList.toggle('mobile-hidden', tab !== 'chat');
+      panelPlayers.classList.toggle('mobile-hidden', tab !== 'players');
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════
 // OVERLAYS
 // ════════════════════════════════════════════════════════
 
@@ -567,17 +536,13 @@ function showWordChoice(words) {
     cards.appendChild(card);
   });
 
-  // Word choice countdown
   clearWcTimer();
   S.wcTime = 15;
   $('wc-timer').textContent = S.wcTime;
   S.wcInterval = setInterval(() => {
     S.wcTime--;
     $('wc-timer').textContent = Math.max(0, S.wcTime);
-    if (S.wcTime <= 0) {
-      clearWcTimer();
-      hideOverlay(ovWordChoice);
-    }
+    if (S.wcTime <= 0) { clearWcTimer(); hideOverlay(ovWordChoice); }
   }, 1000);
 
   showOverlay(ovWordChoice);
@@ -602,18 +567,12 @@ function showAnnounce(drawerName, drawerId, round, total) {
     : `${escHtml(drawerName)} is drawing next!`;
 
   showOverlay(ovAnnounce);
-
-  // Auto-hide after 2.5s (server sends wordChoices right after)
   setTimeout(() => hideOverlay(ovAnnounce), 2500);
 }
 
 function showTurnEnd(word, players) {
-  const allGuessed = players.every(p =>
-    p.id === S.currentDrawerId || S.players.find(sp => sp.id === p.id)
-  );
-
-  $('te-emoji').textContent = allGuessed ? '🎉' : '⏰';
-  $('te-title').textContent = allGuessed ? 'Everyone got it!' : "Time's up!";
+  $('te-emoji').textContent = '⏰';
+  $('te-title').textContent = "Time's up!";
   $('te-word').textContent = word;
 
   const scoresEl = $('te-scores');
@@ -624,7 +583,6 @@ function showTurnEnd(word, players) {
     const gained = p.score - prev;
     const row = document.createElement('div');
     row.className = 'te-row';
-    const idx = players.findIndex(pp => pp.id === p.id);
     row.innerHTML = `
       <span>${escHtml(p.name)}</span>
       <span class="te-pts${gained <= 0 ? ' neg' : ''}">
@@ -634,9 +592,7 @@ function showTurnEnd(word, players) {
     scoresEl.appendChild(row);
   });
 
-  // Update local player scores for diff
   S.players = players;
-
   showOverlay(ovTurnEnd);
   setTimeout(() => hideOverlay(ovTurnEnd), 4800);
 }
@@ -650,11 +606,11 @@ function hideOverlay(el) { el.classList.add('hidden'); }
 
 function showGameOver(players) {
   showScreen('gameover');
+  clearSession();
 
-  // Build podium (top 3)
   goPodium.innerHTML = '';
   const medals = ['🥇', '🥈', '🥉'];
-  const podOrder = [1, 0, 2]; // display order: 2nd, 1st, 3rd
+  const podOrder = [1, 0, 2];
   podOrder.forEach(pos => {
     const p = players[pos];
     if (!p) return;
@@ -671,7 +627,6 @@ function showGameOver(players) {
     goPodium.appendChild(pod);
   });
 
-  // Full list
   goList.innerHTML = '';
   players.forEach((p, i) => {
     const idx = S.players.findIndex(sp => sp.id === p.id);
@@ -688,42 +643,108 @@ function showGameOver(players) {
 }
 
 btnPlayAgain.addEventListener('click', () => {
-  // Go back to lobby
   showScreen('lobby');
   renderLobby();
 });
 
 btnLeave.addEventListener('click', () => {
-  savedRoom = null;
-  window.location.href = '/';
+  leaveGame();
 });
+
+// ════════════════════════════════════════════════════════
+// SESSION PERSISTENCE (for rejoin)
+// ════════════════════════════════════════════════════════
+
+function saveSession() {
+  try {
+    localStorage.setItem('sp_session', JSON.stringify({
+      roomId: S.roomId,
+      name:   S.myName,
+      ts:     Date.now(),
+    }));
+  } catch (_) {}
+}
+
+function clearSession() {
+  try { localStorage.removeItem('sp_session'); } catch (_) {}
+}
 
 // ════════════════════════════════════════════════════════
 // SOCKET — INCOMING EVENTS
 // ════════════════════════════════════════════════════════
 
 socket.on('roomJoined', ({ roomId, playerId, players, isHost }) => {
-  S.roomId    = roomId;
-  S.playerId  = playerId;
-  S.isHost    = isHost;
-  S.players   = players;
+  S.roomId   = roomId;
+  S.playerId = playerId;
+  S.isHost   = isHost;
+  S.players  = players;
 
   lobbyCode.textContent = roomId;
   tbCode.textContent    = roomId;
-  $('tb-room-code').textContent = roomId;
 
-  // Clear rejoin banner on successful join
-  rejoinBanner.classList.add('hidden');
-
-  // Update URL without reload (for bookmarking / sharing)
   history.replaceState(null, '', `?room=${roomId}`);
+  saveSession();
 
   showScreen('lobby');
   renderLobby();
 });
 
-socket.on('joinError', ({ message }) => showError(wError, message));
-socket.on('gameError', ({ message }) => showError(lobbyError, message));
+// Rejoin response from server
+socket.on('rejoined', ({ roomId, playerId, players, isHost, state, round, totalRounds, drawerId, drawerName, hint, timeLeft, yourWord }) => {
+  S.roomId          = roomId;
+  S.playerId        = playerId;
+  S.isHost          = isHost;
+  S.players         = players;
+  S.currentDrawerId = drawerId;
+
+  lobbyCode.textContent = roomId;
+  tbCode.textContent    = roomId;
+  history.replaceState(null, '', `?room=${roomId}`);
+  saveSession();
+
+  if (state === 'lobby' || state === 'gameEnd') {
+    showScreen('lobby');
+    renderLobby();
+    return;
+  }
+
+  // Active game
+  uiRound.textContent  = round;
+  uiTotalR.textContent = totalRounds;
+  showScreen('game');
+  clearCanvas();
+  renderGamePlayers();
+
+  if (hint) renderHint(hint);
+  if (timeLeft != null) {
+    S.totalTime = 80;
+    updateTimer(timeLeft);
+  }
+
+  if (yourWord) {
+    // I'm the drawer
+    setDrawingMode(true);
+    setChatEnabled(false);
+    showActualWord(yourWord);
+  } else if (state === 'drawing') {
+    setDrawingMode(false);
+    setChatEnabled(!S.hasGuessed);
+    statusText.textContent = 'Watch and guess!';
+  } else {
+    setDrawingMode(false);
+    setChatEnabled(false);
+    statusText.textContent = `${escHtml(drawerName || '')} is choosing a word…`;
+  }
+
+  addMsg('system alert', '↩ You rejoined the game!');
+});
+
+socket.on('rejoinError', ({ message }) => {
+  showError(wError, message);
+});
+
+socket.on('joinError',  ({ message }) => showError(wError, message));
+socket.on('gameError',  ({ message }) => showError(lobbyError, message));
 
 socket.on('playerJoined', ({ player, players }) => {
   S.players = players;
@@ -738,22 +759,32 @@ socket.on('playerLeft', ({ playerName, players }) => {
   addMsg('system', `${escHtml(playerName)} left.`);
 });
 
+socket.on('playerDisconnected', ({ playerName, players }) => {
+  S.players = players;
+  if (Screens.lobby.classList.contains('active')) renderLobby();
+  if (Screens.game.classList.contains('active'))  renderGamePlayers();
+  addMsg('system', `⚡ ${escHtml(playerName)} disconnected (90s to rejoin).`);
+});
+
+socket.on('playerRejoined', ({ player, players }) => {
+  S.players = players;
+  if (Screens.lobby.classList.contains('active')) renderLobby();
+  if (Screens.game.classList.contains('active'))  renderGamePlayers();
+  addMsg('system alert', `↩ ${escHtml(player.name)} rejoined!`);
+});
+
 socket.on('hostChanged', ({ newHostId }) => {
   S.players.forEach(p => p.isHost = p.id === newHostId);
   S.isHost = newHostId === S.playerId;
   if (Screens.lobby.classList.contains('active')) renderLobby();
-  if (S.isHost) addMsg('system alert', "You are now the host.");
+  if (S.isHost) addMsg('system alert', 'You are now the host.');
 });
 
 socket.on('gameStarted', ({ totalRounds }) => {
   S.totalTime = 80;
   uiTotalR.textContent = totalRounds;
-  savedRoom = null; // game started — no point rejoining the old lobby
   showScreen('game');
   clearCanvas();
-  // Reset chat unread on new game
-  unreadCount = 0;
-  chatUnread.classList.add('hidden');
   addMsg('system alert', 'Game started! Get ready…');
 });
 
@@ -763,7 +794,7 @@ socket.on('newTurn', ({ drawerId, drawerName, round, totalRounds, players }) => 
   S.isDrawing = false;
   S.hasGuessed = false;
 
-  uiRound.textContent = round;
+  uiRound.textContent  = round;
   uiTotalR.textContent = totalRounds;
 
   clearCanvas();
@@ -778,7 +809,6 @@ socket.on('newTurn', ({ drawerId, drawerName, round, totalRounds, players }) => 
 });
 
 socket.on('wordChoices', ({ words }) => {
-  // I am the drawer
   hideOverlay(ovAnnounce);
   showWordChoice(words);
 });
@@ -788,7 +818,6 @@ socket.on('drawingStarted', ({ hint, drawerId }) => {
   renderHint(hint);
 
   if (drawerId === S.playerId) {
-    // I'm the drawer — tools enabled
     setDrawingMode(true);
     setChatEnabled(false);
     hideOverlay(ovWordChoice);
@@ -801,7 +830,6 @@ socket.on('drawingStarted', ({ hint, drawerId }) => {
 });
 
 socket.on('yourWordIs', ({ word }) => {
-  // Only the drawer gets this
   showActualWord(word);
 });
 
@@ -869,11 +897,16 @@ socket.on('gameEnded', ({ players }) => {
 });
 
 socket.on('disconnect', () => {
-  addMsg('system', '⚠ Connection lost. Trying to reconnect…');
+  addMsg('system', '⚠ Connection lost. Reconnecting…');
 });
 
 socket.on('connect', () => {
-  if (S.roomId) addMsg('system alert', 'Reconnected.');
+  // Auto-rejoin if we were in a game when we disconnected
+  if (S.roomId && S.myName) {
+    socket.emit('rejoinRoom', { roomId: S.roomId, name: S.myName });
+  } else if (S.roomId) {
+    addMsg('system alert', 'Reconnected.');
+  }
 });
 
 // ════════════════════════════════════════════════════════
@@ -898,10 +931,9 @@ function hideError(el) {
 }
 
 // ════════════════════════════════════════════════════════
-// SHARE LINK FIX
+// SHARE LINK — resolve LAN IP for localhost
 // ════════════════════════════════════════════════════════
 
-// Detect if on localhost and fetch the LAN IP so the link works across devices
 let shareBase = location.origin;
 
 (async function resolveShareBase() {
@@ -914,22 +946,17 @@ let shareBase = location.origin;
   }
 })();
 
-// Replace the copy link handler
+// Override copy link to use LAN IP
 btnCopy.addEventListener('click', async () => {
   const url = `${shareBase}?room=${S.roomId}`;
-  const code = S.roomId;
-
   try {
     await navigator.clipboard.writeText(url);
     btnCopy.textContent = '✓ Copied link!';
   } catch (_) {
-    // Clipboard API failed — show code prominently instead
-    const old = btnCopy.textContent;
-    btnCopy.textContent = `Code: ${code}`;
-    setTimeout(() => btnCopy.textContent = old, 3000);
+    btnCopy.textContent = `Code: ${S.roomId}`;
   }
   setTimeout(() => btnCopy.textContent = '📋 Copy Link', 3000);
-}, true); // use capture to override the old listener
+}, true); // capture overrides earlier listener
 
 // ════════════════════════════════════════════════════════
 // VOICE CHAT  (WebRTC mesh — pure peer-to-peer audio)
@@ -938,11 +965,10 @@ btnCopy.addEventListener('click', async () => {
 const Voice = {
   joined:      false,
   muted:       false,
-  stream:      null,     // local MediaStream
-  peers:       {},       // peerId -> RTCPeerConnection
-  audioEls:    {},       // peerId -> <audio>
+  stream:      null,
+  peers:       {},
+  audioEls:    {},
   analyser:    null,
-  speakTimer:  null,
   isSpeaking:  false,
 };
 
@@ -951,13 +977,9 @@ const btnMic = $('btn-mic');
 const audioContainer = $('audio-container');
 
 btnMic.addEventListener('click', () => {
-  if (!Voice.joined) {
-    joinVoice();
-  } else if (Voice.muted) {
-    unmuteVoice();
-  } else {
-    muteVoice();
-  }
+  if (!Voice.joined)     joinVoice();
+  else if (Voice.muted)  unmuteVoice();
+  else                   muteVoice();
 });
 
 async function joinVoice() {
@@ -965,16 +987,15 @@ async function joinVoice() {
     Voice.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (err) {
     showMicDenied(err.name === 'NotAllowedError'
-      ? 'Microphone permission denied. Allow it in browser settings.'
+      ? 'Microphone permission denied.'
       : 'Could not access microphone: ' + err.message);
     return;
   }
-
   Voice.joined = true;
   Voice.muted  = false;
   btnMic.classList.add('connected');
   btnMic.querySelector('.mic-label').textContent = 'Mute';
-  btnMic.querySelector('.mic-icon').textContent = '🎙️';
+  btnMic.querySelector('.mic-icon').textContent  = '🎙️';
 
   setupSpeakDetection();
   socket.emit('voiceJoin');
@@ -987,7 +1008,7 @@ function muteVoice() {
   btnMic.classList.remove('connected');
   btnMic.classList.add('muted');
   btnMic.querySelector('.mic-label').textContent = 'Unmute';
-  btnMic.querySelector('.mic-icon').textContent = '🔇';
+  btnMic.querySelector('.mic-icon').textContent  = '🔇';
 }
 
 function unmuteVoice() {
@@ -996,7 +1017,7 @@ function unmuteVoice() {
   btnMic.classList.remove('muted');
   btnMic.classList.add('connected');
   btnMic.querySelector('.mic-label').textContent = 'Mute';
-  btnMic.querySelector('.mic-icon').textContent = '🎙️';
+  btnMic.querySelector('.mic-icon').textContent  = '🎙️';
 }
 
 function leaveVoice() {
@@ -1012,26 +1033,22 @@ function leaveVoice() {
   socket.emit('voiceLeave');
   btnMic.classList.remove('connected', 'muted');
   btnMic.querySelector('.mic-label').textContent = 'Voice';
-  btnMic.querySelector('.mic-icon').textContent = '🎙️';
+  btnMic.querySelector('.mic-icon').textContent  = '🎙️';
 }
-
-// ── Speaking detection via AudioContext analyser ──────────
 
 function setupSpeakDetection() {
   try {
-    const ac = new AudioContext();
+    const ac  = new AudioContext();
     const src = ac.createMediaStreamSource(Voice.stream);
     Voice.analyser = ac.createAnalyser();
     Voice.analyser.fftSize = 512;
     src.connect(Voice.analyser);
-
     const data = new Uint8Array(Voice.analyser.frequencyBinCount);
     function tick() {
       if (!Voice.joined) return;
       Voice.analyser.getByteFrequencyData(data);
       const avg = data.reduce((a, b) => a + b, 0) / data.length;
       const speaking = avg > 12 && !Voice.muted;
-
       if (speaking !== Voice.isSpeaking) {
         Voice.isSpeaking = speaking;
         socket.emit('voiceSpeaking', { speaking });
@@ -1040,21 +1057,16 @@ function setupSpeakDetection() {
       requestAnimationFrame(tick);
     }
     tick();
-  } catch (_) { /* AudioContext not available */ }
+  } catch (_) {}
 }
 
-// ── Peer connection helpers ───────────────────────────────
-
 async function createPeer(peerId, isInitiator) {
-  if (Voice.peers[peerId]) { Voice.peers[peerId].close(); }
-
+  if (Voice.peers[peerId]) Voice.peers[peerId].close();
   const pc = new RTCPeerConnection(ICE);
   Voice.peers[peerId] = pc;
 
-  // Add local tracks
   Voice.stream?.getTracks().forEach(t => pc.addTrack(t, Voice.stream));
 
-  // Receive remote audio
   pc.ontrack = ({ streams }) => {
     let audio = Voice.audioEls[peerId];
     if (!audio) {
@@ -1066,15 +1078,12 @@ async function createPeer(peerId, isInitiator) {
     audio.srcObject = streams[0];
   };
 
-  // Trickle ICE
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) socket.emit('voiceIce', { to: peerId, candidate });
   };
 
   pc.onconnectionstatechange = () => {
-    if (['failed','disconnected','closed'].includes(pc.connectionState)) {
-      removePeer(peerId);
-    }
+    if (['failed','disconnected','closed'].includes(pc.connectionState)) removePeer(peerId);
   };
 
   if (isInitiator) {
@@ -1082,7 +1091,6 @@ async function createPeer(peerId, isInitiator) {
     await pc.setLocalDescription(offer);
     socket.emit('voiceOffer', { to: peerId, offer });
   }
-
   return pc;
 }
 
@@ -1094,20 +1102,8 @@ function removePeer(peerId) {
   markSpeaking(peerId, false);
 }
 
-// ── Socket signaling events ───────────────────────────────
-
-socket.on('voiceNewPeer', async ({ peerId }) => {
-  // Someone joined — they will send us an offer, we just get ready
-  // (the joiner initiates to existing peers, existing peers answer)
-  // Nothing to do here — wait for their offer
-});
-
-// Actually the joiner needs to know who's already in — server sends 'voiceNewPeer'
-// to EXISTING peers, who should then initiate offers TO the new joiner
-// Re-design: existing peers initiate to new joiner
 socket.on('voiceNewPeer', async ({ peerId }) => {
   if (!Voice.joined) return;
-  // I'm an existing peer — initiate offer to new joiner
   await createPeer(peerId, true);
 });
 
@@ -1141,20 +1137,13 @@ socket.on('voiceSpeaking', ({ peerId, speaking }) => {
   markSpeaking(peerId, speaking);
 });
 
-// ── Speaking visual ──────────────────────────────────────
-
 function markSpeaking(playerId, speaking) {
   const idx = S.players.findIndex(p => p.id === playerId);
   if (idx < 0) return;
-  const rows = gamePlayers.querySelectorAll('.gp-av');
-  const av = rows[idx];
-  if (av) av.classList.toggle('speaking', speaking);
+  const avs = gamePlayers.querySelectorAll('.gp-av');
+  avs[idx]?.classList.toggle('speaking', speaking);
 }
 
-// ── Cleanup on leave ─────────────────────────────────────
-btnLeave.addEventListener('click', () => leaveVoice(), true);
-
-// ── Error banner ─────────────────────────────────────────
 function showMicDenied(msg) {
   const el = document.createElement('div');
   el.className = 'mic-denied';

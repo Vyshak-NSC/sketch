@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>SketchParty 🎨</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,7 +20,7 @@
       <div class="logo-block">
         <div class="logo-icon">🎨</div>
         <h1 class="logo-text">SketchParty</h1>
-        <p class="logo-sub">Draw. Guess.</p>
+        <p class="logo-sub">Draw. Guess. Laugh.</p>
       </div>
 
       <div id="invite-banner" class="invite-banner hidden">
@@ -28,17 +28,10 @@
         <p>You've been invited! Enter your name below to jump in.</p>
       </div>
 
-      <!-- REJOIN BANNER — shown after quitting a game -->
-      <div id="rejoin-banner" class="rejoin-banner hidden">
-        <span>🔁</span>
-        <p>You left a game in progress. Want to jump back in?</p>
-        <button id="btn-rejoin" class="btn secondary sm">Rejoin</button>
-      </div>
-
       <div class="form-section">
         <div class="field">
           <label for="inp-name">Your name</label>
-          <input type="text" id="inp-name" placeholder="Name" maxlength="20" autocomplete="off" />
+          <input type="text" id="inp-name" placeholder="e.g. Ash" maxlength="20" autocomplete="off" />
         </div>
 
         <button id="btn-create" class="btn primary large">✦ Create Room</button>
@@ -53,6 +46,12 @@
         <button id="btn-join" class="btn secondary large">→ Join Room</button>
 
         <p id="welcome-error" class="error-msg hidden"></p>
+
+        <!-- Rejoin prompt: shown when returning to welcome with a stored room -->
+        <div id="rejoin-banner" class="rejoin-banner hidden">
+          <p>You were in room <strong id="rejoin-code"></strong>.</p>
+          <button id="btn-rejoin" class="btn primary sm">↩ Rejoin Game</button>
+        </div>
       </div>
     </div>
   </div>
@@ -93,6 +92,7 @@
         </button>
         <p id="start-hint" class="hint-text">Waiting for more players…</p>
         <p id="lobby-error" class="error-msg hidden"></p>
+        <button id="btn-lobby-leave" class="btn ghost sm" style="margin-top:4px;">← Leave Room</button>
       </div>
     </div>
   </div>
@@ -107,7 +107,7 @@
   <!-- Top bar -->
   <header class="topbar">
     <div class="tb-left">
-      <span class="tb-logo">🎨 SketchParty</span>
+      <span class="tb-logo">🎨 <span class="tb-logo-text">SketchParty</span></span>
     </div>
     <div class="tb-center">
       <div class="round-badge">
@@ -131,22 +131,28 @@
         <span class="mic-icon">🎙️</span>
         <span class="mic-label">Voice</span>
       </button>
-      <!-- QUIT BUTTON -->
-      <button id="btn-quit" class="btn-quit" title="Leave game">✕ Quit</button>
+      <button id="btn-game-leave" class="btn ghost sm tb-leave" title="Leave game">✕ Leave</button>
     </div>
   </header>
+
+  <!-- Mobile tab bar (chat toggle) -->
+  <div class="mobile-tabs">
+    <button class="mtab active" data-tab="canvas">🖼 Canvas</button>
+    <button class="mtab" data-tab="chat">💬 Chat</button>
+    <button class="mtab" data-tab="players">👥 Players</button>
+  </div>
 
   <!-- Game body -->
   <div class="game-body">
 
     <!-- Players sidebar -->
-    <aside class="players-panel">
+    <aside class="players-panel" id="panel-players">
       <h3 class="panel-title">Players</h3>
       <div id="game-player-list" class="game-players"></div>
     </aside>
 
     <!-- Canvas + tools -->
-    <main class="canvas-panel">
+    <main class="canvas-panel" id="panel-canvas">
       <div class="canvas-frame">
         <canvas id="canvas" width="800" height="600"></canvas>
       </div>
@@ -193,12 +199,8 @@
       </div>
     </main>
 
-    <!-- Chat sidebar — starts hidden, toggled by floating button -->
-    <aside class="chat-panel chat-hidden" id="chat-panel">
-      <div class="chat-panel-header">
-        <span>💬 Chat</span>
-        <button id="btn-chat-close" class="chat-close-btn" title="Close chat">✕</button>
-      </div>
+    <!-- Chat sidebar -->
+    <aside class="chat-panel" id="panel-chat">
       <div id="chat-feed" class="chat-feed"></div>
       <div class="chat-input-row">
         <input type="text" id="chat-inp" placeholder="Type your guess…" maxlength="100" autocomplete="off" />
@@ -239,12 +241,6 @@
   </div>
 
 </div><!-- end screen-game -->
-
-<!-- FLOATING CHAT TOGGLE BUTTON — shown during game -->
-<button id="btn-chat-toggle" class="btn-chat-toggle" style="display:none;">
-  💬 Chat
-  <span id="chat-unread" class="unread-badge hidden">0</span>
-</button>
 
 
 <!-- ═══════════════════════════════════════════════
